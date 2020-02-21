@@ -26,10 +26,9 @@ fp32 with --precision 32.32. In this case, you will need to run over two IPUs.
 
 import tensorflow as tf
 from functools import partial
-import base as BASE
+#import base as BASE
 import validation as VALID
-from tensorflow.contrib.ipu.python.poprand import dropout
-
+#from tensorflow.contrib.ipu.python.poprand import dropout
 
 class SqueezeNet:
     def __init__(self, opts, is_training=True):

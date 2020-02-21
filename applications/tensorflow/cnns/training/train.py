@@ -33,6 +33,11 @@ import Datasets.data as dataset
 DATASET_CONSTANTS = dataset.DATASET_CONSTANTS
 
 
+#true to use virtul ipu
+IPU_MODEL = True
+if IPU_MODEL:
+    os.environ['TF_POPLAR_FLAGS'] = "--use_ipu_model"
+
 GraphOps = namedtuple(
     'graphOps', ['graph',
                  'session',
@@ -194,7 +199,7 @@ def training_graph(model, opts, iterations_per_step=1):
     train_graph = tf.Graph()
     with train_graph.as_default():
         placeholders = dict()
-        datatype = tf.float16 if opts["precision"].split('.') == '16' else tf.float32
+        datatype = tf.float16 if opts["precision"].split('.')[0] == '16' else tf.float32
         placeholders['learning_rate'] = tf.placeholder(datatype, shape=[])
         learning_rate = placeholders['learning_rate']
 
@@ -235,6 +240,7 @@ def training_graph(model, opts, iterations_per_step=1):
 
     ipu.utils.configure_ipu_system(ipu_options)
     train_sess = tf.Session(graph=train_graph, config=tf.ConfigProto())
+    
 
     return GraphOps(train_graph, train_sess, train_init, [train], placeholders, train_iterator, outfeed, train_saver)
 
