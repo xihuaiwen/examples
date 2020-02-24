@@ -28,9 +28,9 @@ class LearningRate:
 
 def add_arguments(parser):
     lr_group = parser.add_argument_group('Exp Learning Rate')
-    lr_group.add_argument('--warmup-epochs', type=int, default=0,
+    lr_group.add_argument('--warmup-epochs', type=int, default=3,
                           help="Warmup length in epochs (Default=5, set to 0 for no warmup)")
-    lr_group.add_argument('--decay-steps', type=int, default=10,
+    lr_group.add_argument('--decay-steps', type=int, default=5000000,
                           help="Change learning rate until n steps (Default=10)")  
     lr_group.add_argument('--learning-rate', type=float, default=0.01,
                           help="learning rate for exp (Default=0.01)")   

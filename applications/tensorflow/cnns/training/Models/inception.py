@@ -2,17 +2,6 @@ import tensorflow as tf
 from functools import partial
 from tensorflow.python.ipu import normalization_ops
 
-'''
-'V1':{'3a':[16,16,16,16,16,16],
-          '3b':[16,16,16,16,16,16],
-          '4a':[16,16,16,16,16,16],
-          '4b':[16,16,16,16,16,16],
-          '4c':[16,16,16,16,16,16],
-          '4d':[16,16,16,16,16,16],
-          '4e':[16,16,16,16,16,16],
-          '5a':[16,16,16,16,16,16],
-          '5b':[16,16,16,16,16,16]},
-'''
 cfg={
     'V1':{'3a':[64,96,128,16,32,32],
           '3b':[128,128,192,32,96,64],
@@ -133,14 +122,14 @@ class Inception:
           fn_list = self._build_function_list()
 
           tf.add_to_collection("activations", x)
-          with tf.variable_scope(
-             "all", use_resource=True, custom_getter=self.custom_dtype_getter):
-               for each_fn in fn_list:
-                    ret = x
-                    for fn in each_fn:
-                         ret = fn(ret)
-                    result.append(ret)
-               return result[0]
+          #with tf.variable_scope(
+             #"all", use_resource=True, custom_getter=self.custom_dtype_getter):
+          for each_fn in fn_list:
+               ret = x
+               for fn in each_fn:
+                    ret = fn(ret)
+               result.append(ret)
+          return result
      
      def _block(self,x,out_filters,model_session,name=None):
           with tf.variable_scope(name):
@@ -164,35 +153,49 @@ class Inception:
      
      def _final_block(self,x,name=None):
           with tf.variable_scope(name):
-               x = tf.layers.average_pooling2d(x, pool_size=7, strides=1, name="final_pool")               
+               x = tf.layers.average_pooling2d(x, pool_size=7, strides=1, name="final_pool") 
+               #x = _conv_layer(x,filters_out=self.num_classes,ksize=1,stride=1,bn_cfg=self.opts,name='conv_3')
                x = tf.nn.dropout(x, keep_prob=0.5 if self.is_training else 0.0, name="drop")
                x = tf.layers.flatten(x)
                return x               
 
-     def _extra_block(self,x,name=None):
-          with tf.variable_scope(name):
-               x = tf.layers.average_pooling2d(x, pool_size=5, strides=1, name="extra_pool")               
-               x = tf.nn.dropout(x, keep_prob=0.5 if self.is_training else 0.0, name="drop")
-               x = tf.layers.flatten(x)
-               return x
+     #def _extra_block(self,x,name=None):
+          #with tf.variable_scope(name):
+               #x = tf.layers.average_pooling2d(x, pool_size=7, strides=8, name="extra_pool") 
+               ##filters = tf.get_variable(
+                    ##"conv2d/extra_block",
+                    ##shape=[2,2,x.get_shape().as_list()[3],self.num_classes],
+                    ##dtype=x.dtype,
+                    ##trainable=True,
+                    ##initializer=tf.variance_scaling_initializer(seed=None),
+               ##)               
+               ##x = tf.nn.conv2d(x,filters=filters,strides=1,padding="VALID",name='conv_3')
+               #x = _conv_layer(x,filters_out=self.num_classes,ksize=1,stride=1,bn_cfg=self.opts,name='conv_4')
+               ##x = tf.layers.average_pooling2d(x, pool_size=5, strides=1, name="extra_pool")
+               #x = tf.nn.dropout(x, keep_prob=0.5 if self.is_training else 0.0, name="drop")
+               #x = tf.layers.flatten(x)
+               ##x = tf.layers.dense(x, units=self.num_classes, activation=None)
+               #return x
           
      def _build_function_list(self):
           all_fn_list = []
-          ext1_fn_list = []
-          ext2_fn_list =[]
+          #ext1_fn_list = []
+          #ext2_fn_list =[]
           
           all_fn_list.append(partial(self._init_block,out_filters=64,name='init_block'))
           for i,key in enumerate(cfg[self.model]):
                all_fn_list.append(partial(self._block,out_filters=cfg[self.model][key],model_session=key,name='block_{}'.format(i+1)))
-               if key is '4a':
-                    ext1_fn_list = all_fn_list.copy()
-               elif key is '4d':
-                    ext2_fn_list = all_fn_list.copy()
-               elif key in ['3b','4e']:
+               #if key is '4a':
+                    #ext1_fn_list = all_fn_list.copy()
+                    #ext1_fn_list.append(partial(self._extra_block,name='extra_block1'))
+               #elif key is '4d':
+                    #ext2_fn_list = all_fn_list.copy()
+                    #ext2_fn_list.append(partial(self._extra_block,name='extra_block2'))
+               if key in ['3b','4e']:
                     all_fn_list.append(partial(_pool,ksize=3,stride=2,model='max',name='pool_{}'.format(i+1)))
           all_fn_list.append(partial(self._final_block,name='final_block'))
           
-          return all_fn_list,ext1_fn_list,ext2_fn_list
+          return [all_fn_list]
           
           
      def first_stage(self, x, first_split_name):
@@ -280,7 +283,7 @@ def set_defaults(opts):
      opts['summary_str'] += "Inception\n"
 
 #    opts['dataset'] = 'imagenet'
-     opts['lr_schedule'] = 'polynomial_decay_lr'
+     #opts['lr_schedule'] = 'polynomial_decay_lr'
 
      if not opts.get("learning_rate_decay"):
           opts["learning_rate_decay"] = [1.0, 0.1, 0.01]  

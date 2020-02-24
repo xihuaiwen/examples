@@ -70,6 +70,26 @@ def calculate_loss(logits, label, opts):
 
     return loss, cross_entropy, accuracy
 
+def calculate_multi_loss(logits, label, opts):
+    predictions = tf.argmax(logits[0], 1, output_type=tf.int32)
+    accuracy = tf.reduce_mean(tf.cast(tf.equal(predictions, label), tf.float16))
+    cross_entropy = 0
+    # Loss
+    for each_logics in logits:
+        if opts["label_smoothing"] > 0:
+            num_classes = each_logics.get_shape().as_list()[1]
+            smooth_negatives = opts["label_smoothing"] / (num_classes - 1)
+            smooth_positives = (1.0 - opts["label_smoothing"])
+            smoothed_labels = tf.one_hot(label, num_classes, on_value=smooth_positives, off_value=smooth_negatives)
+            cross_entropy += tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=each_logics, labels=smoothed_labels))
+        else:
+            cross_entropy += tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=each_logics, labels=label))
+
+    tf.add_to_collection('losses', cross_entropy)
+    loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
+
+    return loss, cross_entropy, accuracy
+
 
 def get_optimizer(opts):
     if opts['optimiser'] == 'SGD':
@@ -103,7 +123,10 @@ def basic_training_step(image, label, model, opts, learning_rate):
     A basic training step that will work on all hardware
     """
     logits = model(opts, training=True, image=image)
-    loss, cross_entropy, accuracy = calculate_loss(logits, label, opts)
+    if type(logits)==list: 
+        loss, cross_entropy, accuracy = calculate_multi_loss(logits, label, opts)
+    else:
+        loss, cross_entropy, accuracy = calculate_loss(logits, label, opts)
 
     learning_rate, train_op = calculate_and_apply_gradients(loss, opts, learning_rate=learning_rate)
     if opts['shards'] > 1:
@@ -293,6 +316,11 @@ def train_process(model, LR_Class, opts):
     train.session.run(train.init)
     train.session.run(train.iterator.initializer)
 
+   # 生成一个写日志的writer，并将当前的TensorFlow计算图写入日志。TensorFlow提供了
+   # 多种写日志文件的API，在后面详细介绍。
+    writer = tf.summary.FileWriter('./logs/', train.session.graph)
+    writer.close()
+    
     # -------------- BUILD VALIDATION GRAPH ----------------
 
     if opts['validation']:
