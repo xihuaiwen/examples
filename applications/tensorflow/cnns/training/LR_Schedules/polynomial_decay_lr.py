@@ -1,6 +1,6 @@
 # Copyright 2019 Graphcore Ltd.
 import tensorflow as tf
-
+import math
 
 class LearningRate:
     def __init__(self, opts, total_iterations):
@@ -9,8 +9,20 @@ class LearningRate:
         self.power = opts["poly_lr_decay_power"]
         self.end_learning_rate = opts["poly_lr_end_lr"]
 
+        self.warmup_iterations = 0
+        if opts['warmup_epochs'] > 0:
+            if opts['epochs']:
+                self.warmup_iterations = total_iterations * opts["warmup_epochs"] // opts["epochs"]
+            else:
+                opts['warmup_epochs'] = 0
+
     def feed_dict_lr(self, iteration):
-        return None
+        self.decay_steps = self.decay_steps * math.ceil((iteration+1) / self.decay_steps)
+        lr = (self.initial_lr - self.end_learning_rate) * math.pow((1 - iteration / self.decay_steps) , (self.power)) + self.end_learning_rate
+        if iteration < self.warmup_iterations:
+            return (iteration * lr) / self.warmup_iterations
+        else:
+            return lr
 
     def tf_learning_rate_schedule(self, lr):
         global_step_var = tf.get_variable('global_step', shape=[], dtype=tf.int32,
@@ -45,15 +57,17 @@ def add_arguments(parser):
                           help="Initial learning rate, before decay.")
     lr_group.add_argument('--poly-lr-end-lr', type=float,
                           help="Final learning rate, after poly-lr-decay-steps.")
+    lr_group.add_argument('--warmup-epochs', type=int, default=5,
+                          help="Warmup length in epochs (Default=5, set to 0 for no warmup)")
     return parser
 
 
 def set_defaults(opts):
         # We only need to set defaults for the following if the user has specified a polynomial learning rate
     if not opts["poly_lr_initial_lr"]:
-        opts["poly_lr_initial_lr"] = 0.0012
+        opts["poly_lr_initial_lr"] = 0.01
     if not opts['poly_lr_decay_steps']:
-        opts['poly_lr_decay_steps'] = 40000000
+        opts['poly_lr_decay_steps'] = 100000
     if not opts["poly_lr_end_lr"]:
         opts["poly_lr_end_lr"] = 0.0001
     if not opts["poly_lr_decay_power"]:

@@ -10,6 +10,8 @@ class LearningRate:
         self.decay_rate = opts["decay_rate"]
         self.decay_steps = opts["decay_steps"]
         
+        self.step = [10000000,30000000,50000000,60000000]
+
         self.warmup_iterations = 0
         if opts['warmup_epochs'] > 0:
             if opts['epochs']:
@@ -23,7 +25,17 @@ class LearningRate:
         if iteration < self.warmup_iterations:
             return (iteration * lr) / self.warmup_iterations
         else:
-            return lr     
+            return lr
+        # lr = 0
+        # if iteration > self.step[3]:
+        #     lr = 0.000001
+        # elif iteration > self.step[2]:
+        #     lr = 0.00001
+        # elif iteration > self.step[1]:
+        #     lr = 0.0001
+        # else:
+        #     lr = 0.001
+        # return lr   
 
 
 def add_arguments(parser):

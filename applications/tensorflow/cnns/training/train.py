@@ -32,9 +32,14 @@ from tensorflow.python.ipu.scopes import ipu_scope
 import Datasets.data as dataset
 DATASET_CONSTANTS = dataset.DATASET_CONSTANTS
 
+#tf_report
+from tensorflow.compiler.plugin.poplar.ops import gen_ipu_ops
+from gc_profile import save_tf_report
+with tf.device('cpu'):
+    report = gen_ipu_ops.ipu_event_trace()
 
 #true to use virtul ipu
-IPU_MODEL = True
+IPU_MODEL = False
 if IPU_MODEL:
     os.environ['TF_POPLAR_FLAGS'] = "--use_ipu_model"
 
@@ -226,6 +231,9 @@ def training_graph(model, opts, iterations_per_step=1):
         placeholders['learning_rate'] = tf.placeholder(datatype, shape=[])
         learning_rate = placeholders['learning_rate']
 
+        placeholders['loss_value'] = tf.placeholder(dtype=datatype, name='loss_value') 
+        placeholders['auc_value'] = tf.placeholder(dtype=datatype, name='auc_value') 
+
         # datasets must be defined outside the ipu device scope
         train_iterator = ipu_infeed_queue.IPUInfeedQueue(dataset.data(opts, is_training=True),
                                                          feed_name='training_feed',
@@ -259,7 +267,9 @@ def training_graph(model, opts, iterations_per_step=1):
                              fp_exceptions=opts["fp_exceptions"],
                              xla_recompute=opts["xla_recompute"],
                              seed=opts["seed"],
-                             availableMemoryProportion=globalAMP)
+                             availableMemoryProportion=globalAMP,
+                             profiling=opts["profiling"],
+                             profile_execution=opts["profile_execution"])
 
     ipu.utils.configure_ipu_system(ipu_options)
     train_sess = tf.Session(graph=train_graph, config=tf.ConfigProto())
@@ -281,6 +291,19 @@ def training_step(train, e, learning_rate):
     else:
         loss, accuracy, lr = 0, 0, 0
     return loss, accuracy, batch_time, lr
+
+
+#定义变量数据汇总函数，函数附带变量的直方图分布
+def variable_summaries(var):
+    with tf.name_scope('summaries'):
+        mean = tf.reduce_mean(var)
+        tf.summary.scalar('mean', mean)
+        with tf.name_scope('stddev'):
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+        tf.summary.scalar('stddev', stddev)
+        tf.summary.scalar('max', tf.reduce_max(var))
+        tf.summary.scalar('min', tf.reduce_min(var))
+        tf.summary.histogram('histogram', var)
 
 
 def train_process(model, LR_Class, opts):
@@ -316,11 +339,12 @@ def train_process(model, LR_Class, opts):
     train.session.run(train.init)
     train.session.run(train.iterator.initializer)
 
-   # 生成一个写日志的writer，并将当前的TensorFlow计算图写入日志。TensorFlow提供了
-   # 多种写日志文件的API，在后面详细介绍。
+
+    # 生成一个写日志的writer，并将当前的TensorFlow计算图写入日志。TensorFlow提供了
+    train_loss_summary = tf.summary.scalar(name='train_loss', tensor=train.placeholders['loss_value'])    
+    train_auc_summary = tf.summary.scalar(name='train_auc', tensor=train.placeholders['auc_value'])    
     writer = tf.summary.FileWriter('./logs/', train.session.graph)
-    writer.close()
-    
+   
     # -------------- BUILD VALIDATION GRAPH ----------------
 
     if opts['validation']:
@@ -371,6 +395,10 @@ def train_process(model, LR_Class, opts):
         # Run Training
         try:
             batch_loss, batch_acc, batch_time, current_lr = training_step(train, i + 1, LR.feed_dict_lr(i))
+
+            out = train.session.run(report)
+            save_tf_report(out)
+
             if opts['pipeline_depth'] > 1:
                 current_lr *= opts["loss_scaling"]
         except tf.errors.OpError as e:
@@ -389,6 +417,10 @@ def train_process(model, LR_Class, opts):
         if log_this_step:
             train_acc = np.mean(batch_accs)
             train_loss = np.mean(batch_losses)
+
+            train_loss_summary_value, train_auc_summary_value = train.session.run([train_loss_summary, train_auc_summary], feed_dict={train.placeholders['loss_value']:train_loss, train.placeholders['auc_value']:train_acc}) #
+            writer.add_summary(train_auc_summary_value, global_step=i)  #注意：一次只能add一个summary
+            writer.add_summary(train_loss_summary_value, global_step=i)
 
             if len(batch_times) != 0:
                 avg_batch_time = np.mean(batch_times)
@@ -552,6 +584,9 @@ def add_ipu_arguments(parser):
     group.add_argument('--available-memory-proportion', default=None, nargs='+',
                        help="Proportion of memory which is available for convolutions. Use a value of less than 0.6 "
                             "to reduce memory usage.")
+    group.add_argument('--profiling', action="store_true",
+                       help="Turn on profiling exceptions")
+    group.add_argument('--profile-execution', action="store_true", help="Allow execution for profine")
     return parser
 
 
@@ -564,6 +599,9 @@ def set_ipu_defaults(opts):
     opts['summary_str'] += ' {poplar_version}'
     if opts['select_ipu'] == 'AUTO':
         opts['select_ipu'] = -1
+
+    opts["profiling"] = True
+    opts["profile_execution"] = True
 
     opts['hostname'] = gethostname()
     opts['datetime'] = str(datetime.datetime.now())
